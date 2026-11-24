@@ -15,9 +15,9 @@ pub const NODE_ID_LEN: usize = 16;
 /// Ephemeral node identifier, regenerated on every start.
 pub type NodeId = [u8; NODE_ID_LEN];
 
-const MAJOR_UINT: u8 = 0;
-const MAJOR_BYTES: u8 = 2;
-const MAJOR_ARRAY: u8 = 4;
+pub(crate) const MAJOR_UINT: u8 = 0;
+pub(crate) const MAJOR_BYTES: u8 = 2;
+pub(crate) const MAJOR_ARRAY: u8 = 4;
 const BEACON_ITEMS: u64 = 4;
 
 /// A decoded discovery beacon.
@@ -100,7 +100,7 @@ impl Beacon {
 }
 
 /// Writes a CBOR item head using the shortest form for `value`.
-fn put_head(out: &mut Vec<u8>, major: u8, value: u64) {
+pub(crate) fn put_head(out: &mut Vec<u8>, major: u8, value: u64) {
     let high = major << 5;
     if value < 24 {
         out.push(high | (value as u8));
@@ -119,13 +119,13 @@ fn put_head(out: &mut Vec<u8>, major: u8, value: u64) {
     }
 }
 
-struct Reader<'a> {
-    input: &'a [u8],
-    pos: usize,
+pub(crate) struct Reader<'a> {
+    pub(crate) input: &'a [u8],
+    pub(crate) pos: usize,
 }
 
 impl<'a> Reader<'a> {
-    fn take(&mut self, len: usize) -> Result<&'a [u8], DecodeError> {
+    pub(crate) fn take(&mut self, len: usize) -> Result<&'a [u8], DecodeError> {
         let end = self.pos.checked_add(len).ok_or(DecodeError::Malformed)?;
         let slice = self
             .input
@@ -137,7 +137,7 @@ impl<'a> Reader<'a> {
 
     /// Reads one item head of the expected major type and returns its argument.
     /// Rejects indefinite lengths and integers not in shortest form.
-    fn head(&mut self, expected_major: u8) -> Result<u64, DecodeError> {
+    pub(crate) fn head(&mut self, expected_major: u8) -> Result<u64, DecodeError> {
         let first = self.take(1)?[0];
         if first >> 5 != expected_major {
             return Err(DecodeError::Malformed);

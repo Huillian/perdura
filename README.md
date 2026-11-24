@@ -39,6 +39,13 @@ cargo build -p perdura-cli
 ./scripts/test-identity.sh
 ```
 
+Teste completo entre dois nós: descoberta, canal cifrado e troca de mensagem:
+
+```sh
+cargo build -p perdura-cli
+./scripts/test-channel.sh
+```
+
 ## Licença
 
 MIT. Veja [LICENSE](LICENSE).

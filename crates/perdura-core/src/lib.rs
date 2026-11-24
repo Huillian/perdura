@@ -1,6 +1,7 @@
 //! Core library of the Perdura network.
 
 pub mod beacon;
+pub mod channel;
 pub mod discovery;
 pub mod identity;
 pub mod peers;

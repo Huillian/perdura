@@ -12,4 +12,5 @@ workspace = true
 [dependencies]
 ed25519-dalek = { version = "3", features = ["zeroize"] }
 getrandom = "0.3"
+snow = "0.10"
 zeroize = "1"

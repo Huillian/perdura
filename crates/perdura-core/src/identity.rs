@@ -9,11 +9,13 @@ use std::io::{self, Read, Write};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
-use ed25519_dalek::SigningKey;
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use zeroize::Zeroize;
 
 /// Length of an identity public key, in bytes.
 pub const PUBLIC_KEY_LEN: usize = 32;
+/// Length of an identity signature, in bytes.
+pub const SIGNATURE_LEN: usize = 64;
 
 const SEED_LEN: usize = 32;
 const FILE_HEADER: &str = "perdura-identity-v0";
@@ -227,6 +229,26 @@ fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
+impl Identity {
+    /// Signs `message` with the identity key.
+    #[must_use]
+    pub fn sign(&self, message: &[u8]) -> [u8; SIGNATURE_LEN] {
+        self.signing_key.sign(message).to_bytes()
+    }
+}
+
+/// Verifies an identity signature. Returns `false` for any invalid input.
+#[must_use]
+pub fn verify(public_key: &PublicKey, message: &[u8], signature: &[u8; SIGNATURE_LEN]) -> bool {
+    let Ok(key) = VerifyingKey::from_bytes(public_key) else {
+        return false;
+    };
+    let Ok(signature) = Signature::try_from(&signature[..]) else {
+        return false;
+    };
+    key.verify_strict(message, &signature).is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,5 +372,30 @@ mod tests {
     #[test]
     fn rejects_uppercase_hex() {
         assert!(from_hex(&RFC8032_SEED.to_uppercase()).is_none());
+    }
+
+    /// RFC 8032, section 7.1, test 1: signature of the empty message.
+    const RFC8032_SIGNATURE: &str = "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b";
+
+    #[test]
+    fn signs_like_rfc8032() {
+        let seed = from_hex(RFC8032_SEED).unwrap();
+        let identity = Identity::from_seed(&seed);
+        assert_eq!(to_hex(&identity.sign(b"")), RFC8032_SIGNATURE);
+    }
+
+    #[test]
+    fn verifies_only_the_signed_message_under_the_signing_key() {
+        let identity = Identity::generate().unwrap();
+        let other = Identity::generate().unwrap();
+        let signature = identity.sign(b"message");
+
+        assert!(verify(&identity.public_key(), b"message", &signature));
+        assert!(!verify(&identity.public_key(), b"massage", &signature));
+        assert!(!verify(&other.public_key(), b"message", &signature));
+
+        let mut tampered = signature;
+        tampered[0] ^= 0x01;
+        assert!(!verify(&identity.public_key(), b"message", &tampered));
     }
 }
