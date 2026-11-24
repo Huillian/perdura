@@ -2,6 +2,7 @@
 
 pub mod beacon;
 pub mod discovery;
+pub mod identity;
 pub mod peers;
 
 /// Returns the version of this crate.

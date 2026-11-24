@@ -32,6 +32,13 @@ cargo build -p perdura-cli
 ./scripts/test-discovery.sh
 ```
 
+Teste de persistência da identidade:
+
+```sh
+cargo build -p perdura-cli
+./scripts/test-identity.sh
+```
+
 ## Licença
 
 MIT. Veja [LICENSE](LICENSE).
