@@ -37,3 +37,15 @@ Intervalo de envio: 5 segundos, com variação aleatória de até 0,5 segundo. U
 `node_id` com 16 bytes `0x11` e `port` igual a 29170:
 
 `84000150111111111111111111111111111111111971f2`
+
+## 3. Identidade
+
+- A identidade de um nó é uma chave pública Ed25519 de 32 bytes.
+- A impressão digital é essa chave em base32 (RFC 4648), em minúsculas e sem preenchimento, o que dá 52 caracteres, escritos em 13 grupos de 4 separados por hífen.
+
+### 3.1 Vetores de teste
+
+| Chave pública | Impressão digital |
+|---|---|
+| 32 bytes `0x00` | `aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa` |
+| 32 bytes `0xff` | `7777-7777-7777-7777-7777-7777-7777-7777-7777-7777-7777-777q` |
