@@ -12,7 +12,7 @@ Projeto em fase inicial (Fase 0). Ainda não há rede funcional.
 
 ## Documentação
 
-- [PERDURA.md](PERDURA.md): visão, arquitetura, roadmap e decisões abertas.
+- [specs/PROTOCOL.md](specs/PROTOCOL.md): especificação do protocolo.
 - [docs/adr/](docs/adr/): decisões arquiteturais.
 
 ## Desenvolvimento
