@@ -49,3 +49,40 @@ Intervalo de envio: 5 segundos, com variação aleatória de até 0,5 segundo. U
 |---|---|
 | 32 bytes `0x00` | `aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa` |
 | 32 bytes `0xff` | `7777-7777-7777-7777-7777-7777-7777-7777-7777-7777-7777-777q` |
+
+## 4. Canal seguro
+
+- Transporte: TCP sobre IPv6 link-local, porta `29170`. O nó recusa pares cujo endereço não esteja em `fe80::/10`.
+- Enquadramento: cada mensagem Noise é precedida do seu tamanho em 2 bytes, em ordem de rede.
+- Handshake: `Noise_XX_25519_ChaChaPoly_SHA256`, com prólogo `perdura/0` (9 bytes ASCII).
+- A chave estática do Noise é gerada a cada inicialização.
+- Depois de qualquer erro, a conexão é encerrada.
+
+### 4.1 Prova de identidade (tipo 2)
+
+`[0, 2, identity_key, signature]`
+
+| Item | Tipo CBOR | Conteúdo |
+|---|---|---|
+| 0 | inteiro sem sinal | versão, `0` |
+| 1 | inteiro sem sinal | tipo, `2` |
+| 2 | cadeia de bytes, 32 bytes | chave pública de identidade (Ed25519) |
+| 3 | cadeia de bytes, 64 bytes | assinatura Ed25519 |
+
+A assinatura cobre os 23 bytes ASCII `perdura-noise-static-v0` seguidos dos 32 bytes da chave estática Noise de quem assina.
+
+- A primeira mensagem do handshake leva carga vazia.
+- A segunda leva a prova do respondedor. A terceira leva a prova do iniciador.
+- Quem recebe a prova verifica a assinatura contra a chave estática Noise que o par apresentou no handshake. Se a verificação falhar, a conexão é encerrada.
+
+### 4.2 Dados (tipo 3)
+
+`[0, 3, payload]`
+
+| Item | Tipo CBOR | Conteúdo |
+|---|---|---|
+| 0 | inteiro sem sinal | versão, `0` |
+| 1 | inteiro sem sinal | tipo, `3` |
+| 2 | cadeia de bytes, até 16384 bytes | conteúdo da aplicação |
+
+Vetor de teste: o conteúdo ASCII `hi` é codificado como `830003426869` antes de ser cifrado.
