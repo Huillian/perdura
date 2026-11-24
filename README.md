@@ -1,0 +1,30 @@
+# Perdura
+
+> A internet cai. A rede perdura.
+
+Perdura é uma rede de comunicação aberta, privada e descentralizada, operada pelos próprios participantes, que funciona com ou sem a internet convencional.
+
+## Estado
+
+Projeto em fase inicial (Fase 0). Ainda não há rede funcional.
+
+**Não use para comunicações sensíveis.** O código não foi auditado.
+
+## Documentação
+
+- [PERDURA.md](PERDURA.md): visão, arquitetura, roadmap e decisões abertas.
+- [docs/adr/](docs/adr/): decisões arquiteturais.
+
+## Desenvolvimento
+
+Requer Rust estável.
+
+```sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+## Licença
+
+MIT. Veja [LICENSE](LICENSE).
