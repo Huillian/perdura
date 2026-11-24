@@ -51,6 +51,11 @@ Teste de falha explícita e reconexão:
     cargo build -p perdura-cli
     ./scripts/test-recovery.sh
 
+Teste de descoberta com um nó que não recebe multicast:
+
+    cargo build -p perdura-cli
+    ./scripts/test-discovery-reply.sh
+
 ## Licença
 
 MIT. Veja [LICENSE](LICENSE).

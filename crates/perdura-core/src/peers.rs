@@ -8,6 +8,8 @@ use crate::beacon::NodeId;
 
 /// A peer is forgotten after this long without a beacon.
 pub const PEER_TIMEOUT: Duration = Duration::from_secs(15);
+/// Minimum time between two direct replies to the same peer.
+pub const REPLY_INTERVAL: Duration = Duration::from_secs(4);
 /// Maximum number of peers kept in the table.
 pub const MAX_PEERS: usize = 256;
 
@@ -26,6 +28,7 @@ pub enum Observation {
 struct Entry {
     addr: SocketAddrV6,
     last_seen: Instant,
+    last_reply: Option<Instant>,
 }
 
 /// Peers currently considered present on the link.
@@ -56,9 +59,25 @@ impl PeerTable {
             Entry {
                 addr,
                 last_seen: now,
+                last_reply: None,
             },
         );
         Observation::New
+    }
+
+    /// Returns whether a direct reply to `id` is due at `now`, and records
+    /// it as sent when it is. Never due for peers that are not in the table.
+    pub fn reply_due(&mut self, id: &NodeId, now: Instant) -> bool {
+        let Some(entry) = self.peers.get_mut(id) else {
+            return false;
+        };
+        let due = entry
+            .last_reply
+            .is_none_or(|last| now.saturating_duration_since(last) >= REPLY_INTERVAL);
+        if due {
+            entry.last_reply = Some(now);
+        }
+        due
     }
 
     /// Removes and returns the peers not heard from within `PEER_TIMEOUT`.
@@ -144,5 +163,33 @@ mod tests {
         );
         assert_eq!(table.observe(id(0), addr(), now), Observation::Refreshed);
         assert_eq!(table.len(), MAX_PEERS);
+    }
+
+    #[test]
+    fn reply_is_due_once_per_interval() {
+        let mut table = PeerTable::new();
+        let start = Instant::now();
+        table.observe(id(1), addr(), start);
+        assert!(table.reply_due(&id(1), start));
+        assert!(!table.reply_due(&id(1), start + Duration::from_secs(1)));
+        assert!(table.reply_due(&id(1), start + REPLY_INTERVAL));
+        assert!(!table.reply_due(&id(1), start + REPLY_INTERVAL));
+    }
+
+    #[test]
+    fn refreshing_a_peer_keeps_the_reply_limit() {
+        let mut table = PeerTable::new();
+        let start = Instant::now();
+        let later = start + Duration::from_secs(1);
+        table.observe(id(1), addr(), start);
+        assert!(table.reply_due(&id(1), start));
+        assert_eq!(table.observe(id(1), addr(), later), Observation::Refreshed);
+        assert!(!table.reply_due(&id(1), later));
+    }
+
+    #[test]
+    fn reply_is_never_due_for_unknown_peers() {
+        let mut table = PeerTable::new();
+        assert!(!table.reply_due(&id(9), Instant::now()));
     }
 }

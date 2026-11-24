@@ -2,11 +2,16 @@
 //!
 //! A beacon is a CBOR array in deterministic encoding (RFC 8949, section 4.2):
 //! `[version, message_type, node_id, port]`.
+//!
+//! An announce (type 1) is sent to the multicast group. A reply (type 4) is
+//! sent directly to a node whose announce was received.
 
 /// Protocol version implemented by this crate.
 pub const PROTOCOL_VERSION: u64 = 0;
-/// Message type of a discovery beacon.
+/// Message type of a discovery announce.
 pub const MESSAGE_TYPE_BEACON: u64 = 1;
+/// Message type of a direct discovery reply.
+pub const MESSAGE_TYPE_BEACON_REPLY: u64 = 4;
 /// Maximum size of a discovery datagram, in bytes.
 pub const MAX_DATAGRAM_SIZE: usize = 1200;
 /// Length of a node identifier, in bytes.
@@ -20,9 +25,20 @@ pub(crate) const MAJOR_BYTES: u8 = 2;
 pub(crate) const MAJOR_ARRAY: u8 = 4;
 const BEACON_ITEMS: u64 = 4;
 
+/// How a beacon was meant to be delivered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BeaconKind {
+    /// Sent to the multicast group. Receivers answer with a `Reply`.
+    Announce,
+    /// Sent directly to one node. Never answered.
+    Reply,
+}
+
 /// A decoded discovery beacon.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Beacon {
+    /// Whether this is an announce or a direct reply.
+    pub kind: BeaconKind,
     /// Ephemeral identifier of the sending node.
     pub node_id: NodeId,
     /// Contact port advertised by the sending node.
@@ -38,7 +54,7 @@ pub enum DecodeError {
     Malformed,
     /// The datagram announces a protocol version this crate does not know.
     UnsupportedVersion(u64),
-    /// The datagram carries a message type this crate does not know.
+    /// The datagram carries a message type that is not a beacon.
     UnknownType(u64),
 }
 
@@ -46,10 +62,14 @@ impl Beacon {
     /// Encodes the beacon into its wire representation.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
+        let message_type = match self.kind {
+            BeaconKind::Announce => MESSAGE_TYPE_BEACON,
+            BeaconKind::Reply => MESSAGE_TYPE_BEACON_REPLY,
+        };
         let mut out = Vec::with_capacity(32);
         put_head(&mut out, MAJOR_ARRAY, BEACON_ITEMS);
         put_head(&mut out, MAJOR_UINT, PROTOCOL_VERSION);
-        put_head(&mut out, MAJOR_UINT, MESSAGE_TYPE_BEACON);
+        put_head(&mut out, MAJOR_UINT, message_type);
         put_head(&mut out, MAJOR_BYTES, NODE_ID_LEN as u64);
         out.extend_from_slice(&self.node_id);
         put_head(&mut out, MAJOR_UINT, u64::from(self.port));
@@ -75,10 +95,11 @@ impl Beacon {
         if version != PROTOCOL_VERSION {
             return Err(DecodeError::UnsupportedVersion(version));
         }
-        let message_type = reader.head(MAJOR_UINT)?;
-        if message_type != MESSAGE_TYPE_BEACON {
-            return Err(DecodeError::UnknownType(message_type));
-        }
+        let kind = match reader.head(MAJOR_UINT)? {
+            MESSAGE_TYPE_BEACON => BeaconKind::Announce,
+            MESSAGE_TYPE_BEACON_REPLY => BeaconKind::Reply,
+            other => return Err(DecodeError::UnknownType(other)),
+        };
         if items != BEACON_ITEMS {
             return Err(DecodeError::Malformed);
         }
@@ -95,7 +116,11 @@ impl Beacon {
         if reader.pos != input.len() {
             return Err(DecodeError::Malformed);
         }
-        Ok(Self { node_id, port })
+        Ok(Self {
+            kind,
+            node_id,
+            port,
+        })
     }
 }
 
@@ -176,6 +201,13 @@ mod tests {
     use super::*;
 
     const SAMPLE: Beacon = Beacon {
+        kind: BeaconKind::Announce,
+        node_id: [0x11; NODE_ID_LEN],
+        port: 29170,
+    };
+
+    const SAMPLE_REPLY: Beacon = Beacon {
+        kind: BeaconKind::Reply,
         node_id: [0x11; NODE_ID_LEN],
         port: 29170,
     };
@@ -185,6 +217,13 @@ mod tests {
         let mut bytes = vec![0x84, 0x00, 0x01, 0x50];
         bytes.extend_from_slice(&[0x11; NODE_ID_LEN]);
         bytes.extend_from_slice(&[0x19, 0x71, 0xf2]);
+        bytes
+    }
+
+    /// Bytes of `SAMPLE_REPLY`: the same beacon with message type 4.
+    fn sample_reply_bytes() -> Vec<u8> {
+        let mut bytes = sample_bytes();
+        bytes[2] = 0x04;
         bytes
     }
 
@@ -204,6 +243,16 @@ mod tests {
     #[test]
     fn decodes_known_bytes() {
         assert_eq!(Beacon::decode(&sample_bytes()), Ok(SAMPLE));
+    }
+
+    #[test]
+    fn reply_encodes_to_known_bytes() {
+        assert_eq!(SAMPLE_REPLY.encode(), sample_reply_bytes());
+    }
+
+    #[test]
+    fn reply_decodes_known_bytes() {
+        assert_eq!(Beacon::decode(&sample_reply_bytes()), Ok(SAMPLE_REPLY));
     }
 
     #[test]
@@ -270,10 +319,15 @@ mod tests {
     }
 
     #[test]
-    fn reports_unknown_type() {
-        let mut bytes = sample_bytes();
-        bytes[2] = 0x02;
-        assert_eq!(Beacon::decode(&bytes), Err(DecodeError::UnknownType(2)));
+    fn reports_types_that_are_not_beacons() {
+        for other in [0x00u8, 0x02, 0x03, 0x05] {
+            let mut bytes = sample_bytes();
+            bytes[2] = other;
+            assert_eq!(
+                Beacon::decode(&bytes),
+                Err(DecodeError::UnknownType(u64::from(other)))
+            );
+        }
     }
 
     #[test]

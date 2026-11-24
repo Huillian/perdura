@@ -1,5 +1,9 @@
 //! LAN peer discovery over IPv6 link-local multicast.
 //!
+//! Each node announces itself to a multicast group. A node that receives an
+//! announce answers with a direct reply, so two nodes find each other even
+//! when only one of them can receive multicast.
+//!
 //! Discovery is a hint, not authentication: any host on the link can forge
 //! beacons. Peers are authenticated later, when a connection is made.
 
@@ -7,14 +11,14 @@ use std::io;
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6, UdpSocket};
 use std::time::{Duration, Instant};
 
-use crate::beacon::{Beacon, DecodeError, MAX_DATAGRAM_SIZE, NODE_ID_LEN, NodeId};
+use crate::beacon::{Beacon, BeaconKind, DecodeError, MAX_DATAGRAM_SIZE, NODE_ID_LEN, NodeId};
 use crate::peers::{Observation, PeerTable};
 
 /// Multicast group used for discovery (transient, link-local scope). Provisional.
 pub const DISCOVERY_GROUP: Ipv6Addr = Ipv6Addr::new(0xff12, 0, 0, 0, 0, 0, 0x7065, 0x7264);
 /// UDP port used for discovery. Provisional.
 pub const DISCOVERY_PORT: u16 = 29170;
-/// Nominal time between two beacons.
+/// Nominal time between two announces.
 pub const BEACON_INTERVAL: Duration = Duration::from_secs(5);
 
 const BEACON_JITTER_MS: u64 = 500;
@@ -42,17 +46,21 @@ pub enum Event {
 /// Local counters. Never sent anywhere.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Stats {
-    /// Beacons sent.
+    /// Announces sent to the multicast group.
     pub beacons_sent: u64,
-    /// Failed attempts to send a beacon.
+    /// Failed attempts to send an announce or a reply.
     pub send_errors: u64,
-    /// Valid beacons received from other nodes.
+    /// Valid beacons received from other nodes, announces and replies.
     pub beacons_received: u64,
+    /// Direct replies sent.
+    pub replies_sent: u64,
+    /// Direct replies received. Also counted in `beacons_received`.
+    pub replies_received: u64,
     /// Datagrams dropped for being malformed.
     pub dropped_malformed: u64,
     /// Datagrams dropped for an unknown protocol version.
     pub dropped_unsupported_version: u64,
-    /// Datagrams dropped for an unknown message type.
+    /// Datagrams dropped for carrying a type that is not a beacon.
     pub dropped_unknown_type: u64,
     /// Datagrams dropped for exceeding the size limit.
     pub dropped_oversized: u64,
@@ -94,7 +102,14 @@ pub fn run(
     socket.join_multicast_v6(&DISCOVERY_GROUP, ifindex)?;
 
     let destination = SocketAddrV6::new(DISCOVERY_GROUP, DISCOVERY_PORT, 0, ifindex);
-    let beacon = Beacon {
+    let announce = Beacon {
+        kind: BeaconKind::Announce,
+        node_id,
+        port: DISCOVERY_PORT,
+    }
+    .encode();
+    let reply = Beacon {
+        kind: BeaconKind::Reply,
         node_id,
         port: DISCOVERY_PORT,
     }
@@ -112,7 +127,7 @@ pub fn run(
         }
 
         if now >= next_beacon {
-            if socket.send_to(&beacon, destination).is_ok() {
+            if socket.send_to(&announce, destination).is_ok() {
                 stats.beacons_sent += 1;
                 next_beacon = now + next_interval();
             } else {
@@ -132,7 +147,7 @@ pub fn run(
 
         match socket.recv_from(&mut buffer) {
             Ok((len, SocketAddr::V6(source))) => {
-                handle_datagram(
+                let reply_due = handle_datagram(
                     &buffer[..len],
                     source,
                     node_id,
@@ -140,6 +155,13 @@ pub fn run(
                     &mut stats,
                     on_event,
                 );
+                if reply_due {
+                    if socket.send_to(&reply, source).is_ok() {
+                        stats.replies_sent += 1;
+                    } else {
+                        stats.send_errors += 1;
+                    }
+                }
             }
             Ok(_) => {}
             Err(error)
@@ -156,6 +178,8 @@ pub fn run(
     Ok(stats)
 }
 
+/// Processes one received datagram. Returns whether a direct reply must be
+/// sent to `source`.
 fn handle_datagram(
     datagram: &[u8],
     source: SocketAddrV6,
@@ -163,46 +187,56 @@ fn handle_datagram(
     table: &mut PeerTable,
     stats: &mut Stats,
     on_event: &mut dyn FnMut(Event),
-) {
+) -> bool {
     if (source.ip().segments()[0] & 0xffc0) != 0xfe80 {
         stats.dropped_not_link_local += 1;
-        return;
+        return false;
     }
 
     let beacon = match Beacon::decode(datagram) {
         Ok(beacon) => beacon,
         Err(DecodeError::Oversized) => {
             stats.dropped_oversized += 1;
-            return;
+            return false;
         }
         Err(DecodeError::Malformed) => {
             stats.dropped_malformed += 1;
-            return;
+            return false;
         }
         Err(DecodeError::UnsupportedVersion(_)) => {
             stats.dropped_unsupported_version += 1;
-            return;
+            return false;
         }
         Err(DecodeError::UnknownType(_)) => {
             stats.dropped_unknown_type += 1;
-            return;
+            return false;
         }
     };
 
     if beacon.node_id == own_id {
-        return;
+        return false;
     }
     stats.beacons_received += 1;
+    if beacon.kind == BeaconKind::Reply {
+        stats.replies_received += 1;
+    }
 
+    let now = Instant::now();
     let addr = SocketAddrV6::new(*source.ip(), beacon.port, 0, source.scope_id());
-    match table.observe(beacon.node_id, addr, Instant::now()) {
+    match table.observe(beacon.node_id, addr, now) {
         Observation::New => on_event(Event::PeerFound {
             id: beacon.node_id,
             addr,
         }),
         Observation::Refreshed => {}
-        Observation::TableFull => stats.dropped_table_full += 1,
+        Observation::TableFull => {
+            stats.dropped_table_full += 1;
+            return false;
+        }
     }
+
+    // A reply is never answered, which rules out loops.
+    beacon.kind == BeaconKind::Announce && table.reply_due(&beacon.node_id, now)
 }
 
 /// Beacon interval with random jitter, so nodes do not stay synchronized.
@@ -214,4 +248,134 @@ fn next_interval() -> Duration {
         BEACON_JITTER_MS
     };
     BEACON_INTERVAL - Duration::from_millis(BEACON_JITTER_MS) + Duration::from_millis(offset_ms)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const OWN_ID: NodeId = [0xaa; NODE_ID_LEN];
+    const PEER_ID: NodeId = [0xbb; NODE_ID_LEN];
+
+    struct Outcome {
+        reply_due: bool,
+        events: Vec<Event>,
+        stats: Stats,
+    }
+
+    fn link_local_source() -> SocketAddrV6 {
+        SocketAddrV6::new(
+            Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
+            DISCOVERY_PORT,
+            0,
+            3,
+        )
+    }
+
+    fn datagram(kind: BeaconKind, node_id: NodeId) -> Vec<u8> {
+        Beacon {
+            kind,
+            node_id,
+            port: DISCOVERY_PORT,
+        }
+        .encode()
+    }
+
+    fn feed(table: &mut PeerTable, bytes: &[u8], source: SocketAddrV6) -> Outcome {
+        let mut events = Vec::new();
+        let mut stats = Stats::default();
+        let reply_due = handle_datagram(bytes, source, OWN_ID, table, &mut stats, &mut |event| {
+            events.push(event);
+        });
+        Outcome {
+            reply_due,
+            events,
+            stats,
+        }
+    }
+
+    #[test]
+    fn announce_from_a_new_peer_is_recorded_and_answered() {
+        let mut table = PeerTable::new();
+        let outcome = feed(
+            &mut table,
+            &datagram(BeaconKind::Announce, PEER_ID),
+            link_local_source(),
+        );
+        assert!(outcome.reply_due);
+        assert_eq!(
+            outcome.events,
+            vec![Event::PeerFound {
+                id: PEER_ID,
+                addr: link_local_source(),
+            }]
+        );
+        assert_eq!(outcome.stats.beacons_received, 1);
+        assert_eq!(outcome.stats.replies_received, 0);
+    }
+
+    #[test]
+    fn repeated_announce_is_not_answered_again_at_once() {
+        let mut table = PeerTable::new();
+        let bytes = datagram(BeaconKind::Announce, PEER_ID);
+        assert!(feed(&mut table, &bytes, link_local_source()).reply_due);
+        let second = feed(&mut table, &bytes, link_local_source());
+        assert!(!second.reply_due);
+        assert!(second.events.is_empty());
+        assert_eq!(second.stats.beacons_received, 1);
+    }
+
+    #[test]
+    fn reply_is_recorded_but_never_answered() {
+        let mut table = PeerTable::new();
+        let outcome = feed(
+            &mut table,
+            &datagram(BeaconKind::Reply, PEER_ID),
+            link_local_source(),
+        );
+        assert!(!outcome.reply_due);
+        assert_eq!(outcome.events.len(), 1);
+        assert_eq!(outcome.stats.beacons_received, 1);
+        assert_eq!(outcome.stats.replies_received, 1);
+        assert_eq!(table.len(), 1);
+    }
+
+    #[test]
+    fn own_beacon_is_ignored() {
+        let mut table = PeerTable::new();
+        let outcome = feed(
+            &mut table,
+            &datagram(BeaconKind::Announce, OWN_ID),
+            link_local_source(),
+        );
+        assert!(!outcome.reply_due);
+        assert!(outcome.events.is_empty());
+        assert_eq!(outcome.stats.beacons_received, 0);
+        assert!(table.is_empty());
+    }
+
+    #[test]
+    fn beacon_from_outside_the_link_is_dropped() {
+        let mut table = PeerTable::new();
+        let source = SocketAddrV6::new(
+            Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1),
+            DISCOVERY_PORT,
+            0,
+            0,
+        );
+        let outcome = feed(&mut table, &datagram(BeaconKind::Announce, PEER_ID), source);
+        assert!(!outcome.reply_due);
+        assert!(outcome.events.is_empty());
+        assert_eq!(outcome.stats.dropped_not_link_local, 1);
+        assert!(table.is_empty());
+    }
+
+    #[test]
+    fn malformed_datagram_is_counted_and_dropped() {
+        let mut table = PeerTable::new();
+        let outcome = feed(&mut table, &[0xff], link_local_source());
+        assert!(!outcome.reply_due);
+        assert_eq!(outcome.stats.dropped_malformed, 1);
+        assert!(table.is_empty());
+    }
 }
