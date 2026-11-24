@@ -38,6 +38,21 @@ Intervalo de envio: 5 segundos, com variação aleatória de até 0,5 segundo. U
 
 `84000150111111111111111111111111111111111971f2`
 
+### 2.3 Resposta direta (tipo 4)
+
+`[0, 4, node_id, port]`
+
+Mesmos campos do anúncio, com o tipo `4`.
+
+- Ao receber um anúncio válido, o nó envia uma resposta direta em unicast para o endereço e a porta de origem do datagrama.
+- Uma resposta direta nunca é respondida.
+- O nó envia no máximo uma resposta direta a cada 4 segundos para cada par.
+- Quem recebe uma resposta direta trata o remetente como um par descoberto.
+
+Vetor de teste, com `node_id` de 16 bytes `0x11` e `port` igual a 29170:
+
+`84000450111111111111111111111111111111111971f2`
+
 ## 3. Identidade
 
 - A identidade de um nó é uma chave pública Ed25519 de 32 bytes.
