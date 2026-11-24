@@ -25,6 +25,13 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
+Teste de descoberta entre dois nós em redes isoladas (Linux, sem root):
+
+```sh
+cargo build -p perdura-cli
+./scripts/test-discovery.sh
+```
+
 ## Licença
 
 MIT. Veja [LICENSE](LICENSE).

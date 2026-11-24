@@ -1,5 +1,9 @@
 //! Core library of the Perdura network.
 
+pub mod beacon;
+pub mod discovery;
+pub mod peers;
+
 /// Returns the version of this crate.
 #[must_use]
 pub fn version() -> &'static str {
