@@ -46,6 +46,11 @@ cargo build -p perdura-cli
 ./scripts/test-channel.sh
 ```
 
+Teste de falha explícita e reconexão:
+
+    cargo build -p perdura-cli
+    ./scripts/test-recovery.sh
+
 ## Licença
 
 MIT. Veja [LICENSE](LICENSE).
