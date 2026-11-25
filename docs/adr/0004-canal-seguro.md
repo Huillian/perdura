@@ -28,3 +28,16 @@ Dois nós que se descobriram precisam de um canal autenticado e cifrado, sem que
 - A biblioteca `snow` não passou por auditoria formal. O sistema não deve ser anunciado como seguro para comunicações sensíveis.
 - Com dois nós, canal e ponta a ponta coincidem. A proteção de ponta a ponta através de um intermediário será decidida na Fase 2.
 - QUIC permanece candidato para o modo Live.
+
+## Emenda de 2026-11-24: sigilo através de intermediários
+
+### Decisão
+
+- Entre origem e destino que não são vizinhos diretos, há uma sessão de ponta a ponta com o mesmo handshake Noise e a mesma prova de identidade do canal entre vizinhos.
+- As mensagens dessa sessão viajam dentro dos canais entre vizinhos, como carga que os intermediários repassam sem abrir.
+- Entre vizinhos diretos, o canal de enlace já é de ponta a ponta.
+
+### Consequências
+
+- Um intermediário não tem acesso ao conteúdo.
+- Um intermediário vê as identidades de origem e de destino, o tamanho e o horário das mensagens que repassa.

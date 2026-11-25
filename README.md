@@ -6,7 +6,7 @@ Perdura é uma rede de comunicação aberta, privada e descentralizada, operada 
 
 ## Estado
 
-Projeto em fase inicial (Fase 0). Ainda não há rede funcional.
+Fase 1 concluída: dois nós ao alcance direto um do outro se descobrem, se autenticam e trocam mensagens cifradas, sem internet e sem servidor. Ainda não há retransmissão por intermediários.
 
 **Não use para comunicações sensíveis.** O código não foi auditado.
 
@@ -14,6 +14,7 @@ Projeto em fase inicial (Fase 0). Ainda não há rede funcional.
 
 - [specs/PROTOCOL.md](specs/PROTOCOL.md): especificação do protocolo.
 - [docs/adr/](docs/adr/): decisões arquiteturais.
+- [docs/tests/genesis.md](docs/tests/genesis.md): o que foi testado e com qual resultado.
 
 ## Desenvolvimento
 

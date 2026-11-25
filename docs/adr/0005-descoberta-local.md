@@ -50,3 +50,9 @@ A sonda física mostrou que a recepção de multicast varia entre aparelhos. Um 
 - Quando os dois lados recebem multicast, o tráfego de descoberta por par dobra.
 - Um participante do enlace pode induzir respostas diretas forjando anúncios. O efeito é limitado pelo tamanho igual das mensagens, pelo limite de frequência e pela tabela de pares.
 - A decisão é experimental e será reavaliada após os testes físicos.
+
+## Nota de 2026-11-24: resultado dos testes físicos
+
+- A resposta direta foi validada em dois aparelhos Android. Em um deles, a descoberta do par ocorreu somente por resposta direta.
+- Em um dos aparelhos, a interface do hotspot não oferece endereço IPv6 link-local ao app, e a descoberta não inicia. Um caminho por IPv4 fica registrado como pendência, a decidir em novo ADR.
+- O registro completo está em `docs/tests/genesis.md`.
